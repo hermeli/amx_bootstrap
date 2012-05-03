@@ -12,6 +12,9 @@
 *.o
 *~
 *.patch
+*.bin
+*.elf
+*.map
 
 #
 # Top-level generic files
