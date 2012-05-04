@@ -125,7 +125,18 @@ void hw_init(void)
 	/* Configure the EBI Slave Slot Cycle to 64 */
 	// writel( (readl((AT91C_BASE_MATRIX + MATRIX_SCFG3)) & ~0xFF) | 0x40, (AT91C_BASE_MATRIX + MATRIX_SCFG3));
 
-	// Setup Programmable Clocks - PLLB differs for each board/cpu.  
+#ifdef CFG_DEBUG
+	/* Enable Debug messages on the DBGU */
+	dbg_init(BAUDRATE(MASTER_CLOCK, 115200));
+	dbg_print("\n\rStart AT91Bootstrap...\n\r");
+#endif /* CFG_DEBUG */
+
+	/* Setup Programmable Clocks - PLLB differs for each board/cpu. */  
+	
+	// Disable programmable clock and interrupt
+	writel((1<<8), AT91C_BASE_PMC + PMC_IDR);	
+	writel((1<<8), AT91C_BASE_PMC + PMC_SCDR);
+
 	if (AMM)
 	{
 		// AVR & SECURITY CHIP programmable clock outputs on Port B
@@ -134,59 +145,55 @@ void hw_init(void)
 
 		if (SAM9260)
 		{
-			writel(AT91C_PMC_PRES_CLK_8 | AT91C_PMC_CSS_PLLB_CLK, AT91C_PMC_PCKR);		// AVR clock on PCK0/PB30, PLLB=128MHz -> PLLB/8 = 16 MHz 	 
-			writel(AT91C_PMC_PRES_CLK_32 | AT91C_PMC_CSS_PLLB_CLK,AT91C_PMC_PCKR+4);	// SC clock on PCK1/PB31 -> PLLB/32 = 4 MHz 
+			// AVR clock on PCK0/PB30, PLLB=128MHz -> PLLB/8 = 16 MHz
+			writel(AT91C_PMC_PRES_CLK_8 | AT91C_PMC_CSS_PLLB_CLK, AT91C_PMC_PCKR);		
+			// SC clock on PCK1/PB31 -> PLLB/32 = 4 MHz  	 
+			writel(AT91C_PMC_PRES_CLK_32 | AT91C_PMC_CSS_PLLB_CLK,AT91C_PMC_PCKR+4);	
 		}
 		else // (SAM9G20)
 		{
-			writel(AT91C_PMC_PRES_CLK_4 | AT91C_PMC_CSS_PLLB_CLK, AT91C_PMC_PCKR);		// AVR clock on PCK0/PB30, PLLB=64MHz -> PLLB/4 = 16 MHz 		
-			writel(AT91C_PMC_PRES_CLK_16 | AT91C_PMC_CSS_PLLB_CLK, AT91C_PMC_PCKR+4);	// SC clock on PCK1/PB31 -> PLLB/16 = 4MHz 		
+			// AVR clock on PCK0/PB30, PLLB=64MHz -> PLLB/4 = 16 MHz 		
+			writel(AT91C_PMC_PRES_CLK_4 | AT91C_PMC_CSS_PLLB_CLK, AT91C_PMC_PCKR);
+			// SC clock on PCK1/PB31 -> PLLB/16 = 4MHz 				
+			writel(AT91C_PMC_PRES_CLK_16 | AT91C_PMC_CSS_PLLB_CLK, AT91C_PMC_PCKR+4);	
 		}
 		writel(AT91C_PMC_PCK0|AT91C_PMC_PCK1,AT91C_PMC_SCER);	
+		
+		// Setup Programmable Clock register
+		writel((3 << 2) | 3, AT91C_BASE_PMC+PMC_PCKR); 	// clock div=8, select PLLB
+		
+		// Enable programmable clock
+		writel(1<<8, AT91C_BASE_PMC + PMC_SCER); // PCK0 output enable
+
 	}
 	else // (AML)
 	{	
-		writel(3<<30,AT91C_PIOB_ODR);	// disable AVR & SECURITY CHIP clock out on PB30 & PB31 
+		writel(3<<30,AT91C_PIOB_ODR);	// disable output of AVR & SECURITY CHIP on PB30/PB31 
+		writel(3<<30,AT91C_PIOB_PER);	// enable PIO controller on PB30/PB31
 
-		// enable clock on PB19 (with timer TC5 -> derived from PLLA!)
+		// enable clock on PB19 (with timer TC5 -> derived from MCK!)
 		writel(1<<19,AT91C_PIOB_OER);	// output enable	
 		writel(1<<19,AT91C_PIOB_BSR);	// function B
-		writel(1<<19,AT91C_PIOB_PDR);	// port is output
+		writel(1<<19,AT91C_PIOB_PDR);	// PIO disable
 		writel(1<<19,AT91C_PIOB_PPUDR);	// pull-up disable
-		writel(1<<AT91C_ID_TC5,AT91C_PMC_PCER);	
+		writel((1<<AT91C_ID_TC5)|(1<<AT91C_ID_PIOB),AT91C_PMC_PCER);	
 		
 		// TC5 Clock Eingang abschalten
 		writel( (readl(AT91C_TCB1_BMR) & ~AT91C_TCB_TC2XC2S) | AT91C_TCB_TC2XC2S_NONE, AT91C_TCB1_BMR);
 		
-		// TC5 Timer5 setzen
+		// TC5 Timer5 setzen, TIMER_CLOCK1 = MCK / 2 = 45 MHz
 		writel(AT91C_TC_CLKDIS,AT91C_TC5_CCR);
 		writel(AT91C_TC_CLKS_TIMER_DIV1_CLOCK | AT91C_TC_WAVE | AT91C_TC_WAVESEL_UP_AUTO | \
 				AT91C_TC_EEVT_XC0 | AT91C_TC_BCPB_SET | AT91C_TC_BCPC_CLEAR,AT91C_TC5_CMR);
 	
 		writel(2,AT91C_TC5_RB);		// TIOB5-Hi bei 1
-		writel(3,AT91C_TC5_RC);		// TIOB5-Lo und Reset bei 2 (Tcyc=66.66ns)
+		writel(3,AT91C_TC5_RC);		// TIOB5-Lo und Reset bei 2 (Tcyc = 66.66ns = 15MHz)
 		writel(0,AT91C_TC5_CV);		// Counter Start bei 0
 		writel(0,AT91C_TC5_SR);		// Alle Statusflags zurücksetzen
 		writel(0xFFFFFFFF,AT91C_TC5_IDR);	// alle TC5 Interrupts abschalten
-		writel(AT91C_TC_CLKEN | AT91C_TC_SWTRG,AT91C_TC5_CCR); 	// Timer 5 starten	
+		writel(AT91C_TC_CLKEN | AT91C_TC_SWTRG,AT91C_TC5_CCR); 	// Timer 5 starten
 	}
-
-	// Disable programmable clock and interrupt
-	writel((1<<8), AT91C_BASE_PMC + PMC_IDR);	
-	writel((1<<8), AT91C_BASE_PMC + PMC_SCDR);
 	
-	// Setup Programmable Clock register
-	writel((3 << 2) | 3, AT91C_BASE_PMC+PMC_PCKR); 
-
-	// Enable programmable clock
-	writel(1<<8, AT91C_BASE_PMC + PMC_SCER);
-	
-#ifdef CFG_DEBUG
-	/* Enable Debug messages on the DBGU */
-	dbg_init(BAUDRATE(MASTER_CLOCK, 115200));
-	dbg_print("\n\rStart AT91Bootstrap...\n\r");
-#endif /* CFG_DEBUG */
-
 	/* set OUT1-3 to off, STATE to orange */
 	writel(0x0EE00280, AT91C_BASE_PIOC + PIO_CODR(0));
 	writel(0x00000280, AT91C_BASE_PIOC + PIO_SODR(0));
