@@ -33,6 +33,7 @@ static inline void set_cp15(unsigned int value)
 #define SAM9260 ((readl(AT91C_DBGU_CIDR)&0x70000)==0)
 #define AMM (board == 'M')
 #define AML (board == 'L')
+#define AM3 (board == '3')
 
 #ifdef CFG_HW_INIT
 /*----------------------------------------------------------------------------*/
@@ -58,8 +59,7 @@ void hw_init(void)
 	{
 		if (readl(AT91C_PIOC_PDSR)&(1<<30))
 		{	
-			writel(0x0EE00280,AT91C_PIOC_SODR);	// board not supported
-			while(1){};
+			board = '3'; 	// Access Manager AM300
 		}
 		else
 			board = 'L';	// Access Manager LEGIC
@@ -99,7 +99,7 @@ void hw_init(void)
 	}	
 	
 	/* Configure PLLB */
-	if (AMM)
+	if (AMM || AM3)
 	{
 		if (SAM9260)
 			pmc_cfg_pllb(PLLB_AMM_9260, PLL_LOCK_TIMEOUT);
@@ -129,6 +129,11 @@ void hw_init(void)
 	/* Enable Debug messages on the DBGU */
 	dbg_init(BAUDRATE(MASTER_CLOCK, 115200));
 	dbg_print("\n\rStart AT91Bootstrap...\n\r");
+
+	dbg_print("Board type is ");
+	(AMM||AM3)?dbg_print("AM-M/AM300 with processor "):dbg_print("AM-L with processor ");
+	(SAM9260)?dbg_print("SAM9260\n\r"):dbg_print("SAM9G20\n\r");
+	
 #endif /* CFG_DEBUG */
 
 	/* Setup Programmable Clocks - PLLB differs for each board/cpu. */  
@@ -137,7 +142,7 @@ void hw_init(void)
 	writel((1<<8), AT91C_BASE_PMC + PMC_IDR);	
 	writel((1<<8), AT91C_BASE_PMC + PMC_SCDR);
 
-	if (AMM)
+	if (AMM||AM3)
 	{
 		// AVR & SECURITY CHIP programmable clock outputs on Port B
 		writel(3<<30,AT91C_PIOB_PDR);
